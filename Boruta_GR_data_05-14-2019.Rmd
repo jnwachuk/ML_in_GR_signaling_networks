@@ -1,0 +1,505 @@
+---
+title: "Selecting Features of GR Signaling that Predict Ligand-dependent Activity Profiles"
+author: "Jerome C. Nwachukwu"
+date: "5/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+# Load the package
+library(randomForest)
+library(Boruta)
+library(pheatmap)
+library(RColorBrewer)
+library(grid)
+
+#Set working directory
+setwd("/Volumes/nettleslab/Jerome/Skeletal Muscle Data/Machine_learning/MARCONI/Boruta_with_GR_nuc_translocation_data/")
+# Load and view the data
+NanostringData <-read.csv("GR_data_wo_NR0s.csv", stringsAsFactors=TRUE)
+# View(NanostringData)
+rownames(NanostringData) <- NanostringData$Compound
+NanostringData <- NanostringData[,-1]
+NanostringData <- data.frame(scale(NanostringData))
+
+# Cluster each type of feature separately and format the data
+HTassays <- NanostringData[,c(1:7)]
+Col.order <- hclust(dist(t(HTassays)))$order
+HTassays <- HTassays[,Col.order]
+HTassays <- cbind(rownames(HTassays), data.frame(HTassays, row.names=NULL))
+colnames(HTassays)[colnames(HTassays)=="rownames(HTassays)"] <- "Compounds"
+head(HTassays)
+
+Peptides <- NanostringData[,c(8:154)]
+Col.order <- hclust(dist(t(Peptides)))$order
+Peptides <- Peptides[,Col.order]
+Peptides <- cbind(rownames(Peptides), data.frame(Peptides, row.names=NULL))
+colnames(Peptides)[colnames(Peptides)=="rownames(Peptides)"] <- "Compounds"
+head(Peptides[,c(1:5)])
+
+TargetGenes <- NanostringData[,c(155:187)]
+Col.order <- hclust(dist(t(TargetGenes)))$order
+TargetGenes <- TargetGenes[,Col.order]
+TargetGenes <- cbind(rownames(TargetGenes), data.frame(TargetGenes, row.names=NULL))
+colnames(TargetGenes)[colnames(TargetGenes)=="rownames(TargetGenes)"] <- "Compounds"
+head(TargetGenes[,c(1:5)])
+
+# Re-combine the datasets
+myData <- merge(HTassays, Peptides, by = intersect(names(HTassays),names(Peptides)), by.x= 'Compounds', by.y= 'Compounds', all= FALSE, sort=TRUE)
+myData <- merge(myData, TargetGenes, by = intersect(names(myData),names(TargetGenes)), by.x= 'Compounds', by.y= 'Compounds', all= FALSE, sort=TRUE)
+row.names(myData) <- myData$Compounds
+NanostringData <- myData[,-1]
+#=============================
+## Cluster the compounds
+# Pick colors for the heatmap
+# mycolors <-brewer.pal(10,"RdBu")
+# mycolors # shows the colors, which are then used in reverse order below
+mycolors <- c("#053061","#2166AC","#4393C3","#92C5DE","#D1E5F0", "#FDDBC7","#F4A582","#D6604D","#B2182B","#67001F")
+
+# Set the color range of the heatmap
+palette.break1 <- seq(-5, -1, 1)
+palette.break2 <- seq(-0.9, 0, 0.25)
+palette.break3 <- seq(0.1, 0.9, 0.25)
+palette.break4 <- seq(1, 5, 1)
+palette.breaksSUM <- c(palette.break1,palette.break2,palette.break3,palette.break4)
+color.palette  <- colorRampPalette(mycolors)(length(palette.breaksSUM))
+
+# Overwrite default draw_colnames in the pheatmap package.
+draw_colnames_45 <- function (coln, gaps, ...) {
+    coord <- pheatmap:::find_coordinates(length(coln), gaps)
+    x     <- coord$coord - 0.5 * coord$size
+    res   <- grid::textGrob(
+      coln, x = x, y = unit(1, "npc") - unit(3,"bigpts"),
+      vjust = 0.75, hjust = 1, rot = 90, gp = grid::gpar(...)
+    )
+    return(res)
+}
+assignInNamespace(
+  x = "draw_colnames",
+  value = "draw_colnames_45",
+  ns = asNamespace("pheatmap")
+)
+# Plot heatmap. To separate the assay types change set "cluster_rows = F" and "gaps_row = c(7,154)"
+pheatmap((t(NanostringData)),
+          color = color.palette, border_color = "grey50",
+          cellwidth = 6, cellheight = 2.5, 
+          fontsize = 2.5, show_rownames = T,
+          cluster_rows = T, cluster_cols = T, cutree_rows=4,
+         gaps_col = 0, gaps_row = 0,
+         main = "Clustering", breaks = palette.breaksSUM)
+
+#===============================
+# Determine the Predictors of Glut4 Translocation using Boruta
+set.seed(104)
+Glut4_boruta_104 <- Boruta(Glut4~.,data=NanostringData, doTrace=2)
+# Get the results of the Boruta run
+Glut4_stats_104 <- attStats(Glut4_boruta_104)
+Glut4_stats_104 <- Glut4_stats_104[order(Glut4_stats_104$'normHits', decreasing = T),]
+head(Glut4_stats_104)
+sink("Glut4_randomForest_104.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Glut4_boruta_104)],NanostringData$Glut4))
+sink()
+
+# Change the random seed and repeat
+set.seed(392)
+Glut4_boruta_392 <- Boruta(Glut4~.,data=NanostringData, doTrace=2)
+Glut4_stats_392 <- attStats(Glut4_boruta_392)
+Glut4_stats_392 <- Glut4_stats_392[order(Glut4_stats_392$'normHits', decreasing = T),]
+head(Glut4_stats_392)
+sink("Glut4_randomForest_392.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Glut4_boruta_392)],NanostringData$Glut4))
+sink()
+
+# Change the random seed and repeat
+set.seed(426)
+Glut4_boruta_426 <- Boruta(Glut4~.,data=NanostringData, doTrace=2)
+Glut4_stats_426 <- attStats(Glut4_boruta_426)
+Glut4_stats_426 <- Glut4_stats_426[order(Glut4_stats_426$'normHits', decreasing = T),]
+head(Glut4_stats_426)
+sink("Glut4_randomForest_426.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Glut4_boruta_426)],NanostringData$Glut4))
+sink()
+
+# Combine results
+colnames(Glut4_stats_104) <- c("meanImp_104", "medianImp_104", "minImp_104", "maxImp_104", "normHits_104", "decision_104")
+colnames(Glut4_stats_392) <- c("meanImp_392", "medianImp_392", "minImp_392", "maxImp_392", "normHits_392", "decision_392")
+colnames(Glut4_stats_426) <- c("meanImp_426", "medianImp_426", "minImp_426", "maxImp_426", "normHits_426", "decision_426")
+
+Glut4_stats <- merge(Glut4_stats_104,Glut4_stats_392, by = intersect(names(Glut4_stats_104),names(Glut4_stats_392)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Glut4_stats) <- Glut4_stats$'Row.names'
+Glut4_stats <- Glut4_stats[-1]
+Glut4_stats <- merge(Glut4_stats,Glut4_stats_426, by = intersect(names(Glut4_stats),names(Glut4_stats_426)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Glut4_stats) <- Glut4_stats$'Row.names'
+Glut4_stats <- Glut4_stats[-1]
+Glut4_stats <- Glut4_stats[order(Glut4_stats$'normHits_104', decreasing = T),]
+head(Glut4_stats[1:6])
+
+# Export results
+write.csv (Glut4_stats, file="Glut4_Boruta.csv")
+
+#===============================
+# Determine the Predictors of GR Nuclear Translocation using Boruta
+set.seed(104)
+Nuc_boruta_104 <- Boruta(GR_Nuc_Trans~.,data=NanostringData, doTrace=2)
+# Get the results of the Boruta run
+Nuc_stats_104 <- attStats(Nuc_boruta_104)
+Nuc_stats_104 <- Nuc_stats_104[order(Nuc_stats_104$'normHits', decreasing = T),]
+head(Nuc_stats_104)
+sink("Nuc_randomForest_104.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Nuc_boruta_104)],NanostringData$GR_Nuc_Trans))
+sink()
+
+# Change the random seed and repeat
+set.seed(392)
+Nuc_boruta_392 <- Boruta(GR_Nuc_Trans~.,data=NanostringData, doTrace=2)
+Nuc_stats_392 <- attStats(Nuc_boruta_392)
+Nuc_stats_392 <- Nuc_stats_392[order(Nuc_stats_392$'normHits', decreasing = T),]
+head(Nuc_stats_392)
+sink("Nuc_randomForest_392.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Nuc_boruta_392)],NanostringData$GR_Nuc_Trans))
+sink()
+
+# Change the random seed and repeat
+set.seed(426)
+Nuc_boruta_426 <- Boruta(GR_Nuc_Trans~.,data=NanostringData, doTrace=2)
+Nuc_stats_426 <- attStats(Nuc_boruta_426)
+Nuc_stats_426 <- Nuc_stats_426[order(Nuc_stats_426$'normHits', decreasing = T),]
+head(Nuc_stats_426)
+sink("Nuc_randomForest_426.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Nuc_boruta_426)],NanostringData$GR_Nuc_Trans))
+sink()
+
+# Combine results
+colnames(Nuc_stats_104) <- c("meanImp_104", "medianImp_104", "minImp_104", "maxImp_104", "normHits_104", "decision_104")
+colnames(Nuc_stats_392) <- c("meanImp_392", "medianImp_392", "minImp_392", "maxImp_392", "normHits_392", "decision_392")
+colnames(Nuc_stats_426) <- c("meanImp_426", "medianImp_426", "minImp_426", "maxImp_426", "normHits_426", "decision_426")
+
+Nuc_stats <- merge(Nuc_stats_104,Nuc_stats_392, by = intersect(names(Nuc_stats_104),names(Nuc_stats_392)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Nuc_stats) <- Nuc_stats$'Row.names'
+Nuc_stats <- Nuc_stats[-1]
+Nuc_stats <- merge(Nuc_stats,Nuc_stats_426, by = intersect(names(Nuc_stats),names(Nuc_stats_426)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Nuc_stats) <- Nuc_stats$'Row.names'
+Nuc_stats <- Nuc_stats[-1]
+Nuc_stats <- Nuc_stats[order(Nuc_stats$'normHits_104', decreasing = T),]
+head(Nuc_stats[1:6])
+
+# Export results
+write.csv (Nuc_stats, file="Nuc_Boruta.csv")
+
+#===============================
+# Determine the Predictors of Protein Synthesis using Boruta
+set.seed(104)
+Synthesis_boruta_104 <- Boruta(Synthesis~.,data=NanostringData, doTrace=2)
+# Get the results of the Boruta run
+Synthesis_stats_104 <- attStats(Synthesis_boruta_104)
+Synthesis_stats_104 <- Synthesis_stats_104[order(Synthesis_stats_104$'normHits', decreasing = T),]
+head(Synthesis_stats_104)
+sink("Synthesis_randomForest_104.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Synthesis_boruta_104)],NanostringData$Synthesis))
+sink()
+
+# Change the random seed and repeat
+set.seed(392)
+Synthesis_boruta_392 <- Boruta(Synthesis~.,data=NanostringData, doTrace=2)
+Synthesis_stats_392 <- attStats(Synthesis_boruta_392)
+Synthesis_stats_392 <- Synthesis_stats_392[order(Synthesis_stats_392$'normHits', decreasing = T),]
+head(Synthesis_stats_392)
+sink("Synthesis_randomForest_392.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Synthesis_boruta_392)],NanostringData$Synthesis))
+sink()
+
+# Change the random seed and repeat
+set.seed(426)
+Synthesis_boruta_426 <- Boruta(Synthesis~.,data=NanostringData, doTrace=2)
+Synthesis_stats_426 <- attStats(Synthesis_boruta_426)
+Synthesis_stats_426 <- Synthesis_stats_426[order(Synthesis_stats_426$'normHits', decreasing = T),]
+head(Synthesis_stats_426)
+sink("Synthesis_randomForest_426.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Synthesis_boruta_426)],NanostringData$Synthesis))
+sink()
+
+# Combine results
+colnames(Synthesis_stats_104) <- c("meanImp_104", "medianImp_104", "minImp_104", "maxImp_104", "normHits_104", "decision_104")
+colnames(Synthesis_stats_392) <- c("meanImp_392", "medianImp_392", "minImp_392", "maxImp_392", "normHits_392", "decision_392")
+colnames(Synthesis_stats_426) <- c("meanImp_426", "medianImp_426", "minImp_426", "maxImp_426", "normHits_426", "decision_426")
+
+Synthesis_stats <- merge(Synthesis_stats_104,Synthesis_stats_392, by = intersect(names(Synthesis_stats_104),names(Synthesis_stats_392)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Synthesis_stats) <- Synthesis_stats$'Row.names'
+Synthesis_stats <- Synthesis_stats[-1]
+Synthesis_stats <- merge(Synthesis_stats,Synthesis_stats_426, by = intersect(names(Synthesis_stats),names(Synthesis_stats_426)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Synthesis_stats) <- Synthesis_stats$'Row.names'
+Synthesis_stats <- Synthesis_stats[-1]
+Synthesis_stats <- Synthesis_stats[order(Synthesis_stats$'normHits_104', decreasing = T),]
+head(Synthesis_stats[1:6])
+
+# Export results
+write.csv (Synthesis_stats, file="Synthesis_Boruta.csv")
+
+#===============================
+# Determine the Predictors of Protein Degradation using Boruta
+set.seed(104)
+Degradation_boruta_104 <- Boruta(Degradation~.,data=NanostringData, doTrace=2)
+# Get the results of the Boruta run
+Degradation_stats_104 <- attStats(Degradation_boruta_104)
+Degradation_stats_104 <- Degradation_stats_104[order(Degradation_stats_104$'normHits', decreasing = T),]
+head(Degradation_stats_104)
+sink("Degradation_randomForest_104.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Degradation_boruta_104)],NanostringData$Degradation))
+sink()
+
+# Change the random seed and repeat
+set.seed(392)
+Degradation_boruta_392 <- Boruta(Degradation~.,data=NanostringData, doTrace=2)
+Degradation_stats_392 <- attStats(Degradation_boruta_392)
+Degradation_stats_392 <- Degradation_stats_392[order(Degradation_stats_392$'normHits', decreasing = T),]
+head(Degradation_stats_392)
+sink("Degradation_randomForest_392.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Degradation_boruta_392)],NanostringData$Degradation))
+sink()
+
+# Change the random seed and repeat
+set.seed(426)
+Degradation_boruta_426 <- Boruta(Degradation~.,data=NanostringData, doTrace=2)
+Degradation_stats_426 <- attStats(Degradation_boruta_426)
+Degradation_stats_426 <- Degradation_stats_426[order(Degradation_stats_426$'normHits', decreasing = T),]
+head(Degradation_stats_426)
+sink("Degradation_randomForest_426.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Degradation_boruta_426)],NanostringData$Degradation))
+sink()
+
+# Combine results
+colnames(Degradation_stats_104) <- c("meanImp_104", "medianImp_104", "minImp_104", "maxImp_104", "normHits_104", "decision_104")
+colnames(Degradation_stats_392) <- c("meanImp_392", "medianImp_392", "minImp_392", "maxImp_392", "normHits_392", "decision_392")
+colnames(Degradation_stats_426) <- c("meanImp_426", "medianImp_426", "minImp_426", "maxImp_426", "normHits_426", "decision_426")
+
+Degradation_stats <- merge(Degradation_stats_104,Degradation_stats_392, by = intersect(names(Degradation_stats_104),names(Degradation_stats_392)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Degradation_stats) <- Degradation_stats$'Row.names'
+Degradation_stats <- Degradation_stats[-1]
+Degradation_stats <- merge(Degradation_stats,Degradation_stats_426, by = intersect(names(Degradation_stats),names(Degradation_stats_426)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Degradation_stats) <- Degradation_stats$'Row.names'
+Degradation_stats <- Degradation_stats[-1]
+Degradation_stats <- Degradation_stats[order(Degradation_stats$'normHits_104', decreasing = T),]
+head(Degradation_stats[1:6])
+
+# Export results
+write.csv (Degradation_stats, file="Degradation_Boruta.csv")
+
+#===============================
+# Determine the Predictors of Mitochondrial Potential using Boruta
+set.seed(104)
+Mito_boruta_104 <- Boruta(Mito~.,data=NanostringData, doTrace=2)
+# Get the results of the Boruta run
+Mito_stats_104 <- attStats(Mito_boruta_104)
+Mito_stats_104 <- Mito_stats_104[order(Mito_stats_104$'normHits', decreasing = T),]
+head(Mito_stats_104)
+sink("Mito_randomForest_104.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Mito_boruta_104)],NanostringData$Mito))
+sink()
+
+# Change the random seed and repeat
+set.seed(392)
+Mito_boruta_392 <- Boruta(Mito~.,data=NanostringData, doTrace=2)
+Mito_stats_392 <- attStats(Mito_boruta_392)
+Mito_stats_392 <- Mito_stats_392[order(Mito_stats_392$'normHits', decreasing = T),]
+head(Mito_stats_392)
+sink("Mito_randomForest_392.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Mito_boruta_392)],NanostringData$Mito))
+sink()
+
+# Change the random seed and repeat
+set.seed(426)
+Mito_boruta_426 <- Boruta(Mito~.,data=NanostringData, doTrace=2)
+Mito_stats_426 <- attStats(Mito_boruta_426)
+Mito_stats_426 <- Mito_stats_426[order(Mito_stats_426$'normHits', decreasing = T),]
+head(Mito_stats_426)
+sink("Mito_randomForest_426.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(Mito_boruta_426)],NanostringData$Mito))
+sink()
+
+# Combine results
+colnames(Mito_stats_104) <- c("meanImp_104", "medianImp_104", "minImp_104", "maxImp_104", "normHits_104", "decision_104")
+colnames(Mito_stats_392) <- c("meanImp_392", "medianImp_392", "minImp_392", "maxImp_392", "normHits_392", "decision_392")
+colnames(Mito_stats_426) <- c("meanImp_426", "medianImp_426", "minImp_426", "maxImp_426", "normHits_426", "decision_426")
+
+Mito_stats <- merge(Mito_stats_104,Mito_stats_392, by = intersect(names(Mito_stats_104),names(Mito_stats_392)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Mito_stats) <- Mito_stats$'Row.names'
+Mito_stats <- Mito_stats[-1]
+Mito_stats <- merge(Mito_stats,Mito_stats_426, by = intersect(names(Mito_stats),names(Mito_stats_426)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(Mito_stats) <- Mito_stats$'Row.names'
+Mito_stats <- Mito_stats[-1]
+Mito_stats <- Mito_stats[order(Mito_stats$'normHits_104', decreasing = T),]
+head(Mito_stats[1:6])
+
+# Export results
+write.csv (Mito_stats, file="Mito_Boruta.csv")
+
+#===============================
+# Determine the Predictors of AKT-Thr308 Phosphorylation using Boruta
+set.seed(104)
+pAKT_boruta_104 <- Boruta(pAKT~.,data=NanostringData, doTrace=2)
+# Get the results of the Boruta run
+pAKT_stats_104 <- attStats(pAKT_boruta_104)
+pAKT_stats_104 <- pAKT_stats_104[order(pAKT_stats_104$'normHits', decreasing = T),]
+head(pAKT_stats_104)
+sink("pAKT_randomForest_104.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(pAKT_boruta_104)],NanostringData$pAKT))
+sink()
+
+# Change the random seed and repeat
+set.seed(392)
+pAKT_boruta_392 <- Boruta(pAKT~.,data=NanostringData, doTrace=2)
+pAKT_stats_392 <- attStats(pAKT_boruta_392)
+pAKT_stats_392 <- pAKT_stats_392[order(pAKT_stats_392$'normHits', decreasing = T),]
+head(pAKT_stats_392)
+sink("pAKT_randomForest_392.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(pAKT_boruta_392)],NanostringData$pAKT))
+sink()
+
+# Change the random seed and repeat
+set.seed(426)
+pAKT_boruta_426 <- Boruta(pAKT~.,data=NanostringData, doTrace=2)
+pAKT_stats_426 <- attStats(pAKT_boruta_426)
+pAKT_stats_426 <- pAKT_stats_426[order(pAKT_stats_426$'normHits', decreasing = T),]
+head(pAKT_stats_426)
+sink("pAKT_randomForest_426.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(pAKT_boruta_426)],NanostringData$pAKT))
+sink()
+
+# Combine results
+colnames(pAKT_stats_104) <- c("meanImp_104", "medianImp_104", "minImp_104", "maxImp_104", "normHits_104", "decision_104")
+colnames(pAKT_stats_392) <- c("meanImp_392", "medianImp_392", "minImp_392", "maxImp_392", "normHits_392", "decision_392")
+colnames(pAKT_stats_426) <- c("meanImp_426", "medianImp_426", "minImp_426", "maxImp_426", "normHits_426", "decision_426")
+
+pAKT_stats <- merge(pAKT_stats_104,pAKT_stats_392, by = intersect(names(pAKT_stats_104),names(pAKT_stats_392)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(pAKT_stats) <- pAKT_stats$'Row.names'
+pAKT_stats <- pAKT_stats[-1]
+pAKT_stats <- merge(pAKT_stats,pAKT_stats_426, by = intersect(names(pAKT_stats),names(pAKT_stats_426)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(pAKT_stats) <- pAKT_stats$'Row.names'
+pAKT_stats <- pAKT_stats[-1]
+pAKT_stats <- pAKT_stats[order(pAKT_stats$'normHits_104', decreasing = T),]
+head(pAKT_stats[1:6])
+
+# Export results
+write.csv (pAKT_stats, file="pAKT_Boruta.csv")
+
+
+#===============================
+# Determine the Predictors of GR transcriptional activity using Boruta
+set.seed(104)
+MMTV_luc_boruta_104 <- Boruta(MMTV_luc~.,data=NanostringData, doTrace=2)
+# Get the results of the Boruta run
+MMTV_luc_stats_104 <- attStats(MMTV_luc_boruta_104)
+MMTV_luc_stats_104 <- MMTV_luc_stats_104[order(MMTV_luc_stats_104$'normHits', decreasing = T),]
+head(MMTV_luc_stats_104)
+sink("MMTV_luc_randomForest_104.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(MMTV_luc_boruta_104)],NanostringData$MMTV_luc))
+sink()
+
+# Change the random seed and repeat
+set.seed(392)
+MMTV_luc_boruta_392 <- Boruta(MMTV_luc~.,data=NanostringData, doTrace=2)
+MMTV_luc_stats_392 <- attStats(MMTV_luc_boruta_392)
+MMTV_luc_stats_392 <- MMTV_luc_stats_392[order(MMTV_luc_stats_392$'normHits', decreasing = T),]
+head(MMTV_luc_stats_392)
+sink("MMTV_luc_randomForest_392.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(MMTV_luc_boruta_392)],NanostringData$MMTV_luc))
+sink()
+
+# Change the random seed and repeat
+set.seed(426)
+MMTV_luc_boruta_426 <- Boruta(MMTV_luc~.,data=NanostringData, doTrace=2)
+MMTV_luc_stats_426 <- attStats(MMTV_luc_boruta_426)
+MMTV_luc_stats_426 <- MMTV_luc_stats_426[order(MMTV_luc_stats_426$'normHits', decreasing = T),]
+head(MMTV_luc_stats_426)
+sink("MMTV_luc_randomForest_426.txt")
+  print(randomForest(NanostringData[,getSelectedAttributes(MMTV_luc_boruta_426)],NanostringData$MMTV_luc))
+sink()
+
+# Combine results
+colnames(MMTV_luc_stats_104) <- c("meanImp_104", "medianImp_104", "minImp_104", "maxImp_104", "normHits_104", "decision_104")
+colnames(MMTV_luc_stats_392) <- c("meanImp_392", "medianImp_392", "minImp_392", "maxImp_392", "normHits_392", "decision_392")
+colnames(MMTV_luc_stats_426) <- c("meanImp_426", "medianImp_426", "minImp_426", "maxImp_426", "normHits_426", "decision_426")
+
+MMTV_luc_stats <- merge(MMTV_luc_stats_104,MMTV_luc_stats_392, by = intersect(names(MMTV_luc_stats_104),names(MMTV_luc_stats_392)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(MMTV_luc_stats) <- MMTV_luc_stats$'Row.names'
+MMTV_luc_stats <- MMTV_luc_stats[-1]
+MMTV_luc_stats <- merge(MMTV_luc_stats,MMTV_luc_stats_426, by = intersect(names(MMTV_luc_stats),names(MMTV_luc_stats_426)),by.x=0, by.y=0, all= FALSE, sort=TRUE)
+row.names(MMTV_luc_stats) <- MMTV_luc_stats$'Row.names'
+MMTV_luc_stats <- MMTV_luc_stats[-1]
+MMTV_luc_stats <- MMTV_luc_stats[order(MMTV_luc_stats$'normHits_104', decreasing = T),]
+head(MMTV_luc_stats[1:6])
+
+# Export results
+write.csv (MMTV_luc_stats, file="MMTV_luc_Boruta.csv")
+
+## Identifying the minimal set of predictors using randomForest
+# Minimal model for Glut4 Translocation
+set.seed(392)
+minGlut4 <- randomForest(Glut4 ~ Fkbp5c + Socs2 + Bcl2l1 + Tsc22d3 + NCOA1_677_700 + NCOA1_737_759,
+                           data=NanostringData,
+                           importance=TRUE, 
+                           ntree=500, mtry = 1)
+# View the predictions
+print(minGlut4)
+#========================================
+# Minimal model for Protein Degradation 
+set.seed(392)
+minDegradation <- randomForest(Degradation ~ Mito + Socs2,
+                           data=NanostringData,
+                           importance=TRUE, 
+                           ntree=500, mtry = 1)
+# View the predictions
+print(minDegradation)
+#========================================
+# Minimal model for GR nuclear translocation
+set.seed(392)
+minNucTrans <- randomForest(GR_Nuc_Trans ~ PRGC1_134_154 + Fkbp5a + Tsc22d3 + Vav2,
+                           data=NanostringData,
+                           importance=TRUE, 
+                           ntree=500, mtry = 1)
+# View the predictions
+print(minNucTrans)
+#========================================
+# Minimal model for Mitochondrial potential
+set.seed(392)
+minMito <- randomForest(Mito ~ Degradation + Synthesis,
+                           data=NanostringData,
+                           importance=TRUE, 
+                           ntree=500, mtry = 1)
+# View the predictions
+print(minMito)
+
+#========================================
+# Minimal model for GR activity
+set.seed(392)
+minMMTV_luc <- randomForest(MMTV_luc ~ PAK6_248_270 + EP300_69_91 + NRIP1_173_195 + LCOR_40_62,
+                           data=NanostringData,
+                           importance=TRUE, 
+                           ntree=500, mtry = 1)
+# View the predictions
+print(minMMTV_luc)
+
+#========================================
+# Minimal model for AKT-Thr308 phosphorylation
+set.seed(392)
+minpAkt <- randomForest(pAKT ~ Synthesis + MAPE_91_113 + NCOR2_2123_2145,
+                           data=NanostringData,
+                           importance=TRUE, 
+                           ntree=500, mtry = 1)
+# View the predictions
+print(minpAkt)
+#========================================
+# Minimal model for Protein synthesis
+set.seed(392)
+minSynthesis <- randomForest(Synthesis ~ CHD9_1023_1045 + NCOR2_2330_2352 + Socs2 + Mito + MAPE_91_113 + Fbxo32 + Sgk1 + Irs1,
+                           data=NanostringData,
+                           importance=TRUE, 
+                           ntree=500, mtry = 1)
+# View the predictions
+print(minSynthesis)

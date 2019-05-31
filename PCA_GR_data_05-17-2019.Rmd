@@ -1,0 +1,92 @@
+---
+title: "PCA of GR Ligand-dependent Activity Profiles"
+author: "Jerome C. Nwachukwu"
+date: "5/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+# Load the package
+library(randomForest)
+library(Boruta)
+library(pheatmap)
+library(RColorBrewer)
+library(grid)
+
+#Set working directory
+setwd("/Volumes/nettleslab/Jerome/Skeletal Muscle Data/Machine_learning/MARCONI/PCA_with_GR_nuc_translocation_data/")
+# Load and view the data
+NanostringData <-read.csv("GR_data_wo_NR0s.csv", stringsAsFactors=TRUE)
+# View(NanostringData)
+rownames(NanostringData) <- NanostringData$Compound
+NanostringData <- NanostringData[,-1]
+NanostringData <- data.frame(scale(NanostringData))
+
+# Cluster each type of feature separately and format the data
+HTassays <- NanostringData[,c(1:7)]
+Col.order <- hclust(dist(t(HTassays)))$order
+HTassays <- HTassays[,Col.order]
+HTassays <- cbind(rownames(HTassays), data.frame(HTassays, row.names=NULL))
+colnames(HTassays)[colnames(HTassays)=="rownames(HTassays)"] <- "Compounds"
+head(HTassays)
+
+Peptides <- NanostringData[,c(8:154)]
+Col.order <- hclust(dist(t(Peptides)))$order
+Peptides <- Peptides[,Col.order]
+Peptides <- cbind(rownames(Peptides), data.frame(Peptides, row.names=NULL))
+colnames(Peptides)[colnames(Peptides)=="rownames(Peptides)"] <- "Compounds"
+head(Peptides[,c(1:5)])
+
+TargetGenes <- NanostringData[,c(155:187)]
+Col.order <- hclust(dist(t(TargetGenes)))$order
+TargetGenes <- TargetGenes[,Col.order]
+TargetGenes <- cbind(rownames(TargetGenes), data.frame(TargetGenes, row.names=NULL))
+colnames(TargetGenes)[colnames(TargetGenes)=="rownames(TargetGenes)"] <- "Compounds"
+head(TargetGenes[,c(1:5)])
+
+# Re-combine the datasets
+myData <- merge(HTassays, Peptides, by = intersect(names(HTassays),names(Peptides)), by.x= 'Compounds', by.y= 'Compounds', all= FALSE, sort=TRUE)
+myData <- merge(myData, TargetGenes, by = intersect(names(myData),names(TargetGenes)), by.x= 'Compounds', by.y= 'Compounds', all= FALSE, sort=TRUE)
+row.names(myData) <- myData$Compounds
+NanostringData <- myData[,-1]
+head(NanostringData[,c(1:6)])
+#=============================
+## Principal component analysis (PCA)
+#principal component analysis
+prin_comp_zscore <- prcomp(NanostringData, scale. = T)
+# names(prin_comp_zscore)
+# outputs the mean of variables
+#prin_comp_zscore$center
+# write.csv(prin_comp_zscore$center, file="PCA_center_mean.csv")
+# outputs the standard deviation of variables
+# prin_comp_zscore$scale
+# write.csv(prin_comp_zscore$scale, file="PCA_scale_stdev.csv")
+# The rotation measure provides the principal component loading. 
+# Each column of rotation matrix contains the principal component loading vector. 
+# This is the most important measure we should be interested in.
+write.csv (prin_comp_zscore$rotation, file="PCA_rotation.csv")
+#dim(prin_comp_zscore$x)
+#plot the resultant principal components.
+#biplot(prin_comp_zscore, scale = 0)
+#compute standard deviation of each principal component
+std_dev_zscore <- prin_comp_zscore$sdev
+#compute variance
+pr_var_zscore <- std_dev_zscore^2
+#proportion of variance explained (in percent)
+prop_varex_zscore <- 100*pr_var_zscore/sum(pr_var_zscore)
+write.csv (cumsum(prop_varex_zscore), file="PCA_varex.csv")
+write.csv (prop_varex_zscore, file="PCA_varex2.csv")
+
+#=============================
+library("scatterplot3d")
+scatterplot3d(NanostringData$Glut4,y=NanostringData$NCOR2_2330_2352, z=NanostringData$IKBB_62_84,,
+              xlab = "Glut4 Translocation", zlab = "IKKB_62_84", ylab = "NCOR2_2330_2352",grid = F,box = T, angle=24)
+
+
+
